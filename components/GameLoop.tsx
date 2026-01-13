@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GameAssets, GameTheme, Coordinates, StoryUpdate, DialogueChoice } from '../types';
+import { GameAssets, GameTheme, Coordinates, StoryUpdate } from '../types';
 import { updateStoryline } from '../services/geminiService';
 
 interface GameLoopProps {
@@ -9,7 +9,7 @@ interface GameLoopProps {
 
 const TILE_WIDTH = 128;
 const TILE_HEIGHT = 64;
-const INTERACTION_RANGE = 1.2;
+const INTERACTION_RANGE = 1.5;
 
 interface NPC {
   id: number;
@@ -20,29 +20,12 @@ interface NPC {
   idleTimer: number;
 }
 
-interface Drawable {
-  type: 'player' | 'npc' | 'item' | 'wall';
-  x: number;
-  y: number;
-  id?: number;
-  img: HTMLImageElement | null;
-}
-
-interface Cloud {
-  x: number;
-  y: number;
-  size: number;
-  speed: number;
-  opacity: number;
-}
-
 export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerPos = useRef<Coordinates>({ x: 0, y: 0 }); 
   const keysPressed = useRef<Set<string>>(new Set());
   const lastUpdate = useRef<number>(Date.now());
   const npcs = useRef<NPC[]>([]);
-  const clouds = useRef<Cloud[]>([]);
   
   const [activeDialogue, setActiveDialogue] = useState<StoryUpdate | null>(null);
   const [objectivePos, setObjectivePos] = useState<Coordinates | null>(null);
@@ -52,28 +35,14 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
   const [nearbyNpcId, setNearbyNpcId] = useState<number | null>(null);
   const tileOverrides = useRef<Map<string, number>>(new Map());
 
-  // Initialize Clouds
-  useEffect(() => {
-    const cloudCount = 15;
-    const initialClouds: Cloud[] = [];
-    for (let i = 0; i < cloudCount; i++) {
-      initialClouds.push({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        size: 150 + Math.random() * 300,
-        speed: 20 + Math.random() * 40,
-        opacity: 0.1 + Math.random() * 0.2
-      });
-    }
-    clouds.current = initialClouds;
-  }, []);
-
+  // Noise function for consistent terrain generation
   const getTileType = useCallback((x: number, y: number): number => {
     const key = `${x},${y}`;
     if (tileOverrides.current.has(key)) return tileOverrides.current.get(key)!;
+    // Simple pseudo-random noise
     const sinX = Math.sin(x * 12.9898 + y * 78.233);
     const noise = (Math.sin(sinX * 43758.5453) + 1) / 2;
-    if (noise > 0.94) return 1; // Obstacle/Wall
+    if (noise > 0.88) return 1; // Wall/Obstacle
     return 0; // Ground
   }, []);
 
@@ -83,7 +52,7 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
     let tx = Math.round(playerPos.current.x + Math.cos(angle) * radius);
     let ty = Math.round(playerPos.current.y + Math.sin(angle) * radius);
     while (getTileType(tx, ty) === 1) { tx++; ty++; }
-    tileOverrides.current.set(`${tx},${ty}`, 2); 
+    tileOverrides.current.set(`${tx},${ty}`, 2); // 2 = Objective Item
     setObjectivePos({ x: tx, y: ty });
   }, [getTileType]);
 
@@ -92,12 +61,8 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
     for (let i = 0; i < 4; i++) {
       const pos = { x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8 };
       initialNpcs.push({
-        id: i,
-        pos,
-        target: pos,
-        speed: 0.6 + Math.random() * 0.4,
-        state: 'idle',
-        idleTimer: Math.random() * 3
+        id: i, pos, target: pos, speed: 0.8 + Math.random() * 0.5,
+        state: 'idle', idleTimer: Math.random() * 3
       });
     }
     npcs.current = initialNpcs;
@@ -108,11 +73,13 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
     if (isThinking) return;
     setIsThinking(true);
     try {
-      const action = choiceEffect || (nearbyNpcId !== null ? "consulted a villager about construction plans." : "reached the major objective point.");
-      const update = await updateStoryline(theme, history.slice(-5), action);
+      const recentHistory = history.slice(-3);
+      const action = choiceEffect || (nearbyNpcId !== null ? "spoke to a local." : "found a point of interest.");
+      const update = await updateStoryline(theme, recentHistory, action);
       setHistory(prev => [...prev, update.narrative]);
       setObjectiveText(update.newObjective);
       setActiveDialogue(update);
+      
       if (objectivePos) {
         const dist = Math.sqrt(Math.pow(objectivePos.x - playerPos.current.x, 2) + Math.pow(objectivePos.y - playerPos.current.y, 2));
         if (dist < INTERACTION_RANGE) {
@@ -126,7 +93,7 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d', { alpha: false });
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     let animationId: number;
@@ -136,23 +103,25 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
       const dt = (now - lastUpdate.current) / 1000;
       lastUpdate.current = now;
 
-      // 1. Logic Update
+      // --- Logic Update ---
       if (!activeDialogue && !isThinking) {
-        const speed = 5 * dt; 
+        const speed = 4 * dt; 
         let dx = 0, dy = 0;
         if (keysPressed.current.has('ArrowUp') || keysPressed.current.has('w')) dy = -1;
         if (keysPressed.current.has('ArrowDown') || keysPressed.current.has('s')) dy = 1;
         if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('a')) dx = -1;
         if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('d')) dx = 1;
-        if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
-
+        
+        if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; } // Normalize diagonal
         const nextX = playerPos.current.x + dx * speed;
         const nextY = playerPos.current.y + dy * speed;
+        
+        // Simple collision check
         if (getTileType(Math.round(nextX), Math.round(nextY)) !== 1) {
-          playerPos.current.x = nextX;
-          playerPos.current.y = nextY;
+          playerPos.current.x = nextX; playerPos.current.y = nextY;
         }
 
+        // NPC AI
         npcs.current.forEach(npc => {
           if (npc.state === 'idle') {
             npc.idleTimer -= dt;
@@ -163,249 +132,219 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
           } else {
             const ndx = npc.target.x - npc.pos.x, ndy = npc.target.y - npc.pos.y;
             const dist = Math.sqrt(ndx * ndx + ndy * ndy);
-            if (dist < 0.1) { npc.state = 'idle'; npc.idleTimer = 3 + Math.random() * 3; }
+            if (dist < 0.1) { npc.state = 'idle'; npc.idleTimer = 1 + Math.random() * 3; }
             else { npc.pos.x += (ndx / dist) * npc.speed * dt; npc.pos.y += (ndy / dist) * npc.speed * dt; }
           }
         });
 
-        clouds.current.forEach(c => {
-          c.x += c.speed * dt;
-          if (c.x > canvas.width + c.size) c.x = -c.size;
-        });
-
+        // Interaction Check
         let foundNpc: number | null = null;
         npcs.current.forEach(npc => {
-          if (Math.sqrt(Math.pow(npc.pos.x - playerPos.current.x, 2) + Math.pow(npc.pos.y - playerPos.current.y, 2)) < INTERACTION_RANGE) foundNpc = npc.id;
+          const dist = Math.sqrt(Math.pow(npc.pos.x - playerPos.current.x, 2) + Math.pow(npc.pos.y - playerPos.current.y, 2));
+          if (dist < INTERACTION_RANGE) foundNpc = npc.id;
         });
         setNearbyNpcId(foundNpc);
       }
 
-      // 2. Rendering Pipeline
+      // --- Render Start ---
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-
-      // Coordinate converter
-      const toScreenX = (x: number, y: number) => centerX + (x - playerPos.current.x - (y - playerPos.current.y)) * (TILE_WIDTH / 2);
-      const toScreenY = (x: number, y: number) => centerY + (x - playerPos.current.x + (y - playerPos.current.y)) * (TILE_HEIGHT / 2);
-
-      // --- PASS 1: Ground Tiles (Seamless Floor) ---
-      const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, canvas.width * 0.8);
-      grad.addColorStop(0, theme.colors.background || "#1e3a1e");
-      grad.addColorStop(1, "#0a0f0a");
-      ctx.fillStyle = grad;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      
+      // Clear with Theme Background
+      ctx.fillStyle = "#0f1a0f"; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Clouds/Mist underneath
-      ctx.globalAlpha = 0.5;
-      ctx.globalCompositeOperation = 'screen';
-      clouds.current.forEach(c => {
-        const cGrad = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.size);
-        cGrad.addColorStop(0, `rgba(255, 255, 255, ${c.opacity})`);
-        cGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = cGrad;
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1.0;
+      const isoX = (x: number, y: number) => cx + (x - playerPos.current.x - (y - playerPos.current.y)) * (TILE_WIDTH / 2);
+      const isoY = (x: number, y: number) => cy + (x - playerPos.current.x + (y - playerPos.current.y)) * (TILE_HEIGHT / 2);
 
-      const range = 14;
+      const range = 10;
       const startX = Math.floor(playerPos.current.x - range);
-      const endX = Math.ceil(playerPos.current.x + range);
+      const endX = Math.floor(playerPos.current.x + range);
       const startY = Math.floor(playerPos.current.y - range);
-      const endY = Math.ceil(playerPos.current.y + range);
+      const endY = Math.floor(playerPos.current.y + range);
 
+      // PASS 1: Ground (Seamless Stitching)
       for (let y = startY; y <= endY; y++) {
         for (let x = startX; x <= endX; x++) {
-          const drawX = toScreenX(x, y);
-          const drawY = toScreenY(x, y);
+          const drawX = isoX(x, y);
+          const drawY = isoY(x, y);
+          
           if (assets.ground) {
-             const hover = Math.sin(now / 1200 + (x + y) * 0.4) * 2;
-             ctx.drawImage(assets.ground, drawX - TILE_WIDTH / 2 - 1, drawY - TILE_HEIGHT / 2 - 1 + hover, TILE_WIDTH + 2, TILE_HEIGHT + 2);
+            // Draw slightly larger (+2px) to stitch gaps
+            ctx.drawImage(assets.ground, drawX - TILE_WIDTH/2 - 1, drawY - TILE_HEIGHT/2 - 1, TILE_WIDTH + 2, TILE_HEIGHT + 2);
           } else {
-             ctx.fillStyle = "#2d5a27";
-             ctx.beginPath();
-             ctx.moveTo(drawX, drawY - TILE_HEIGHT/2);
-             ctx.lineTo(drawX + TILE_WIDTH/2, drawY);
-             ctx.lineTo(drawX, drawY + TILE_HEIGHT/2);
-             ctx.lineTo(drawX - TILE_WIDTH/2, drawY);
-             ctx.closePath();
-             ctx.fill();
+            // Fallback Grid
+            ctx.fillStyle = "#2d5a27";
+            ctx.beginPath();
+            ctx.moveTo(drawX, drawY - TILE_HEIGHT/2); ctx.lineTo(drawX + TILE_WIDTH/2, drawY);
+            ctx.lineTo(drawX, drawY + TILE_HEIGHT/2); ctx.lineTo(drawX - TILE_WIDTH/2, drawY);
+            ctx.fill();
+            ctx.strokeStyle = "#1e3a1e"; ctx.stroke();
           }
         }
       }
 
-      // --- PASS 2: Depth-Sorted Objects ---
-      const drawList: Drawable[] = [
-        { type: 'player', x: playerPos.current.x, y: playerPos.current.y, img: assets.player }
-      ];
-      npcs.current.forEach(n => drawList.push({ type: 'npc', x: n.pos.x, y: n.pos.y, id: n.id, img: assets.npc }));
-      
+      // PASS 2: Sorted Objects (Depth)
+      const drawList: {y: number, z: number, draw: () => void}[] = [];
+
+      // Add Static Objects
       for (let y = startY; y <= endY; y++) {
         for (let x = startX; x <= endX; x++) {
           const type = getTileType(x, y);
-          if (type === 1) drawList.push({ type: 'wall', x, y, img: assets.wall });
-          if (type === 2) drawList.push({ type: 'item', x, y, img: assets.item });
+          const drawX = isoX(x, y), drawY = isoY(x, y);
+
+          if (type === 1 && assets.wall) {
+            drawList.push({
+              y: y, z: x, // Sort key
+              draw: () => ctx.drawImage(assets.wall!, drawX - TILE_WIDTH/2, drawY - TILE_HEIGHT + 10, TILE_WIDTH, TILE_HEIGHT * 1.5)
+            });
+          }
+          if (type === 2 && assets.item) {
+             const bob = Math.sin(now / 200) * 5;
+             drawList.push({
+               y: y, z: x,
+               draw: () => {
+                 // Glow under item
+                 ctx.shadowColor = theme.colors.secondary; ctx.shadowBlur = 20; 
+                 ctx.drawImage(assets.item!, drawX - 32, drawY - 64 + bob, 64, 64);
+                 ctx.shadowBlur = 0;
+               }
+             });
+          }
         }
       }
 
-      // Sort primarily by Y for correct overlap
-      drawList.sort((a, b) => (a.x + a.y) - (b.x + b.y));
+      // Add Dynamic Entities
+      npcs.current.forEach(npc => {
+        drawList.push({
+          y: npc.pos.y, z: npc.pos.x,
+          draw: () => {
+            const dx = isoX(npc.pos.x, npc.pos.y), dy = isoY(npc.pos.x, npc.pos.y);
+            if (assets.npc) {
+              const bounce = Math.abs(Math.sin(now / 150 + npc.id)) * 6;
+              // Shadow
+              ctx.fillStyle = "rgba(0,0,0,0.3)";
+              ctx.beginPath(); ctx.ellipse(dx, dy, 20, 10, 0, 0, Math.PI*2); ctx.fill();
+              // Sprite
+              ctx.drawImage(assets.npc, dx - 32, dy - 64 - bounce, 64, 64);
+            }
+          }
+        });
+      });
 
-      drawList.forEach(d => {
-        const dX = toScreenX(d.x, d.y);
-        const dY = toScreenY(d.x, d.y);
-
-        // Bouncy character movement/bobbing
-        let bob = 0;
-        if (d.type === 'player') {
-          if (keysPressed.current.size > 0) bob = -Math.abs(Math.sin(now / 150)) * 15;
-          else bob = Math.sin(now / 500) * 3;
-        } else if (d.type === 'npc') {
-          const npc = npcs.current.find(n => n.id === d.id);
-          if (npc?.state === 'walking') bob = -Math.abs(Math.sin(now / 150 + (d.id || 0))) * 12;
-          else bob = Math.sin(now / 400 + (d.id || 0)) * 5;
-        } else if (d.type === 'item') {
-          bob = Math.sin(now / 600) * 10;
-        }
-
-        // Draw Shadow
-        if (d.type !== 'wall') {
-          ctx.fillStyle = "rgba(0,0,0,0.3)";
-          ctx.beginPath();
-          ctx.ellipse(dX, dY + 5, 30, 15, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        if (d.img) {
-          const size = d.type === 'player' ? 120 : (d.type === 'wall' ? 160 : 90);
-          const offsetY = d.type === 'wall' ? -size * 0.75 : -size * 0.9;
-          ctx.drawImage(d.img, dX - size/2, dY + offsetY + bob, size, size);
-        } else {
-          ctx.fillStyle = d.type === 'player' ? "#ffcc00" : "#ffffff";
-          ctx.beginPath(); ctx.arc(dX, dY - 30 + bob, 20, 0, Math.PI*2); ctx.fill();
+      drawList.push({
+        y: playerPos.current.y, z: playerPos.current.x,
+        draw: () => {
+          if (assets.player) {
+            // Shadow
+            ctx.fillStyle = "rgba(0,0,0,0.4)";
+            ctx.beginPath(); ctx.ellipse(cx, cy, 24, 12, 0, 0, Math.PI*2); ctx.fill();
+            // Player Sprite
+            ctx.drawImage(assets.player, cx - 48, cy - 84, 96, 96);
+          }
         }
       });
 
-      // Particle Overlay
-      ctx.globalCompositeOperation = 'lighter';
-      for (let i = 0; i < 15; i++) {
-        const px = (Math.sin(now / 2000 + i) * 0.5 + 0.5) * canvas.width;
-        const py = (Math.cos(now / 3000 + i * 1.5) * 0.5 + 0.5) * canvas.height;
-        ctx.fillStyle = theme.colors.primary || "#d4af37";
-        ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.globalCompositeOperation = 'source-over';
+      // Sort by Y first, then X for correct isometric depth
+      drawList.sort((a, b) => (a.y - b.y) || (a.z - b.z)).forEach(o => o.draw());
 
       animationId = requestAnimationFrame(render);
     };
 
     render();
-
     const onKeyDown = (e: KeyboardEvent) => {
       keysPressed.current.add(e.key);
-      if (e.key.toLowerCase() === 'e') {
-        const distToObj = objectivePos ? Math.sqrt(Math.pow(objectivePos.x - playerPos.current.x, 2) + Math.pow(objectivePos.y - playerPos.current.y, 2)) : 999;
-        if (!activeDialogue && !isThinking && (nearbyNpcId !== null || distToObj < INTERACTION_RANGE)) handleInteraction();
-      }
+      if (e.key.toLowerCase() === 'e' && !activeDialogue && !isThinking) handleInteraction();
     };
     const onKeyUp = (e: KeyboardEvent) => keysPressed.current.delete(e.key);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
-    return () => {
-      cancelAnimationFrame(animationId);
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
+    return () => { cancelAnimationFrame(animationId); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
   }, [assets, theme, activeDialogue, isThinking, getTileType, nearbyNpcId, objectivePos, handleInteraction]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none bg-black font-['Luckiest_Guy']">
+    <div className="relative w-full h-full overflow-hidden select-none bg-[#1a1a1a] font-sans">
       <canvas ref={canvasRef} className="block w-full h-full" />
       
-      {/* Thick Gold HUD */}
-      <div className="absolute top-8 left-8 flex flex-col gap-4">
-        <div className="bg-[#4a4a4a] border-[8px] border-[#c5a059] rounded-[2.5rem] p-8 shadow-[0_15px_40px_rgba(0,0,0,0.7)] min-w-[340px] relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none rounded-[2rem]" />
-          <h2 className="text-[14px] uppercase tracking-[0.3em] text-[#d4af37] mb-2 drop-shadow-md">Village Goal</h2>
-          <p className="text-white text-3xl leading-none drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)] tracking-wide uppercase">
-            {objectiveText}
-          </p>
+      {/* --- HUD: RESOURCE & OBJECTIVE --- */}
+      <div className="absolute top-6 left-6 flex flex-col gap-2 z-10 max-w-md w-full">
+        <div className="relative bg-[#2a2a2a] border-2 border-[#4a4a4a] rounded-xl p-1 shadow-2xl">
+           <div className="absolute -inset-1 bg-gradient-to-r from-[#ffd700] via-[#c5a059] to-[#ffd700] rounded-xl -z-10 blur-sm opacity-60" />
+           <div className="bg-[#1f1f1f] rounded-lg p-4 flex flex-col gap-1">
+              <span className="text-[10px] font-black tracking-[0.2em] text-[#888] uppercase">Current Directive</span>
+              <p className="text-white font-bold text-sm leading-snug text-shadow-sm">{objectiveText}</p>
+           </div>
         </div>
         
-        <div className="w-full h-8 bg-black/60 rounded-full border-4 border-[#c5a059] overflow-hidden shadow-inner p-1">
-           <div className="h-full bg-gradient-to-r from-[#d4af37] via-[#f4d03f] to-[#d4af37] w-[80%] rounded-full shadow-[0_0_15px_#f4d03f]" />
+        {/* Progress Bar */}
+        <div className="h-3 w-full bg-[#111] rounded-full border border-[#444] overflow-hidden relative">
+           <div className="absolute inset-0 bg-gradient-to-r from-[#4ade80] to-[#22c55e] w-[65%] shadow-[0_0_10px_#4ade80]" />
         </div>
       </div>
 
-      {/* Strategic Navigator */}
-      <div className="absolute bottom-12 right-12">
-        <div className="w-32 h-32 rounded-full bg-[#4a4a4a] border-[10px] border-[#c5a059] shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-center relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-black/40 rounded-full" />
-          <div className="text-white font-bold text-[12px] uppercase opacity-40">Tactical</div>
-          {objectivePos && (
-             <div 
-               className="w-3 h-14 bg-gradient-to-t from-[#d4af37] via-white to-[#d4af37] rounded-full absolute transition-transform duration-150"
-               style={{ 
-                 transform: `rotate(${Math.atan2(objectivePos.y - playerPos.current.y, objectivePos.x - playerPos.current.x) * (180 / Math.PI) + 45}deg)`,
-                 boxShadow: '0 0 20px rgba(212,175,55,1)'
-                }}
-             />
-          )}
+      {/* --- UI: MAGICAL COMPASS --- */}
+      <div className="absolute bottom-10 right-10 z-10 group">
+        <div className="w-28 h-28 relative transition-transform duration-300 hover:scale-105">
+           {/* Outer Ring */}
+           <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#ffd700] to-[#8a6e2f] shadow-[0_10px_30px_rgba(0,0,0,0.5)] border-4 border-[#5c4013]" />
+           {/* Inner Glass */}
+           <div className="absolute inset-2 rounded-full bg-[#1a1a1a] shadow-inner overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.1),transparent)]" />
+              {/* Labels */}
+              <span className="absolute top-2 text-[8px] font-bold text-[#c5a059]">N</span>
+              <span className="absolute bottom-2 text-[8px] font-bold text-[#c5a059] opacity-50">S</span>
+              <span className="absolute left-2 text-[8px] font-bold text-[#c5a059] opacity-50">W</span>
+              <span className="absolute right-2 text-[8px] font-bold text-[#c5a059] opacity-50">E</span>
+              
+              {/* The Needle */}
+              {objectivePos && (
+                <div 
+                  className="w-1 h-14 bg-gradient-to-t from-red-500 to-red-600 absolute rounded-full shadow-[0_0_10px_red] origin-bottom transform -translate-y-1/2"
+                  style={{ 
+                    transform: `rotate(${Math.atan2(objectivePos.y - playerPos.current.y, objectivePos.x - playerPos.current.x) * (180 / Math.PI) + 45}deg) translateY(-30%)`
+                   }}
+                >
+                  <div className="w-3 h-3 bg-[#ffd700] rounded-full absolute -bottom-1 -left-1 shadow-sm border border-[#5c4013]" />
+                </div>
+              )}
+           </div>
         </div>
       </div>
 
-      {/* Interaction Prompt */}
+      {/* --- INTERACTION PROMPT --- */}
       {(nearbyNpcId !== null || (objectivePos && Math.sqrt(Math.pow(objectivePos.x - playerPos.current.x, 2) + Math.pow(objectivePos.y - playerPos.current.y, 2)) < INTERACTION_RANGE)) && !activeDialogue && !isThinking && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-48 text-center pointer-events-none">
-          <div className="bg-[#4a4a4a] border-[8px] border-white/90 px-10 py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.8)] animate-bounce">
-            <p className="text-white text-3xl tracking-widest uppercase flex items-center gap-4">
-              <span className="w-10 h-10 rounded-full bg-white text-[#4a4a4a] flex items-center justify-center text-lg font-black">E</span>
-              Action
-            </p>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-24 z-20 animate-bounce">
+          <div className="bg-white text-black px-4 py-1 rounded-full font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(255,255,255,0.6)] border-2 border-[#ffd700]">
+            Press E
           </div>
         </div>
       )}
 
-      {/* Strategy Dialogue Panel */}
+      {/* --- DIALOGUE BOX --- */}
       {activeDialogue && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl bg-[#f5e6c8] border-[12px] border-[#5d4037] rounded-[4rem] shadow-[0_30px_100px_rgba(0,0,0,0.9)] p-14 flex flex-col gap-10">
-          <div className="space-y-6 text-center">
-             <div className="bg-[#5d4037] w-fit px-12 py-3 rounded-full text-[#f4d03f] font-bold text-xl uppercase tracking-widest -mt-24 mx-auto shadow-2xl border-4 border-[#c5a059]">Council</div>
-             <p className="text-4xl text-[#3e2723] font-black leading-tight drop-shadow-md uppercase italic">"{activeDialogue.narrative}"</p>
-             <div className="h-1.5 bg-[#3e2723]/20 w-[60%] mx-auto rounded-full" />
-             <p className="text-xl text-[#5d4037]/90 font-bold uppercase tracking-[0.2em]">{activeDialogue.nearbyDescription}</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-[90%] max-w-2xl bg-[#1f1f1f] border border-[#4a4a4a] rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] p-6 z-50 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-10">
+          <p className="text-xl text-gray-100 font-medium leading-relaxed">"{activeDialogue.narrative}"</p>
+          <div className="h-px bg-gradient-to-r from-transparent via-[#4a4a4a] to-transparent w-full" />
+          <div className="flex gap-3 flex-wrap justify-end">
              {activeDialogue.choices?.map((choice, i) => (
-               <button
-                 key={i}
-                 onClick={() => { handleInteraction(choice.effect); setActiveDialogue(null); }}
-                 className="px-12 py-7 rounded-[2.5rem] bg-[#4caf50] border-b-[12px] border-[#2e7d32] hover:brightness-110 active:border-b-0 active:translate-y-3 text-white font-black text-2xl uppercase transition-all shadow-2xl tracking-widest"
-               >
+               <button key={i} onClick={() => { handleInteraction(choice.effect); setActiveDialogue(null); }} 
+                 className="px-6 py-3 rounded-lg bg-[#2a2a2a] hover:bg-[#333] border border-[#444] text-[#ffd700] font-bold text-sm uppercase tracking-wide transition-all hover:scale-105 active:scale-95 shadow-lg">
                  {choice.label}
                </button>
              ))}
-             <button
-               onClick={() => setActiveDialogue(null)}
-               className="px-12 py-7 rounded-[2.5rem] bg-[#ef5350] border-b-[12px] border-[#c62828] hover:brightness-110 active:border-b-0 active:translate-y-3 text-white font-black text-2xl uppercase transition-all shadow-2xl tracking-widest"
-             >
-               Close
-             </button>
+             <button onClick={() => setActiveDialogue(null)} className="px-6 py-3 rounded-lg bg-red-900/20 hover:bg-red-900/40 border border-red-900/50 text-red-400 font-bold text-sm uppercase transition-all">Dismiss</button>
           </div>
         </div>
       )}
 
-      {/* Strategy Loading Layer */}
+      {/* --- LOADING OVERLAY --- */}
       {isThinking && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-2xl flex items-center justify-center z-[200]">
-          <div className="bg-[#4a4a4a] border-[14px] border-[#c5a059] p-16 rounded-[5rem] text-center shadow-[0_0_120px_rgba(212,175,55,0.5)]">
-            <div className="w-32 h-32 border-[12px] border-t-[#d4af37] border-white/10 rounded-full animate-spin mx-auto mb-10" />
-            <p className="text-white font-black text-4xl uppercase tracking-[0.3em] animate-pulse drop-shadow-2xl">Generating Strategy...</p>
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="flex flex-col items-center gap-4">
+             <div className="w-12 h-12 border-4 border-[#ffd700] border-t-transparent rounded-full animate-spin" />
+             <p className="text-[#ffd700] font-black text-sm uppercase tracking-[0.3em] animate-pulse">Consulting the Oracle...</p>
           </div>
         </div>
       )}
