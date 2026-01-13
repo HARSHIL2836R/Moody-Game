@@ -108,7 +108,7 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
     if (isThinking) return;
     setIsThinking(true);
     try {
-      const action = choiceEffect || (nearbyNpcId !== null ? "consulted a local resident about the village expansion." : "visited a key resource location.");
+      const action = choiceEffect || (nearbyNpcId !== null ? "consulted a villager about construction plans." : "reached the major objective point.");
       const update = await updateStoryline(theme, history.slice(-5), action);
       setHistory(prev => [...prev, update.narrative]);
       setObjectiveText(update.newObjective);
@@ -136,7 +136,7 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
       const dt = (now - lastUpdate.current) / 1000;
       lastUpdate.current = now;
 
-      // 1. Logic Pass
+      // 1. Logic Update
       if (!activeDialogue && !isThinking) {
         const speed = 5 * dt; 
         let dx = 0, dy = 0;
@@ -168,7 +168,6 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
           }
         });
 
-        // Update Clouds
         clouds.current.forEach(c => {
           c.x += c.speed * dt;
           if (c.x > canvas.width + c.size) c.x = -c.size;
@@ -181,20 +180,25 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
         setNearbyNpcId(foundNpc);
       }
 
-      // 2. Render Pass
+      // 2. Rendering Pipeline
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      // --- LAYER 0: Animated Aether Background ---
+      // Coordinate converter
+      const toScreenX = (x: number, y: number) => centerX + (x - playerPos.current.x - (y - playerPos.current.y)) * (TILE_WIDTH / 2);
+      const toScreenY = (x: number, y: number) => centerY + (x - playerPos.current.x + (y - playerPos.current.y)) * (TILE_HEIGHT / 2);
+
+      // --- PASS 1: Ground Tiles (Seamless Floor) ---
       const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, canvas.width * 0.8);
       grad.addColorStop(0, theme.colors.background || "#1e3a1e");
       grad.addColorStop(1, "#0a0f0a");
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw Background Clouds (Mist)
+      // Clouds/Mist underneath
+      ctx.globalAlpha = 0.5;
       ctx.globalCompositeOperation = 'screen';
       clouds.current.forEach(c => {
         const cGrad = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.size);
@@ -206,13 +210,9 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
         ctx.fill();
       });
       ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
 
-      // Coordinate converter
-      const toScreenX = (x: number, y: number) => centerX + (x - playerPos.current.x - (y - playerPos.current.y)) * (TILE_WIDTH / 2);
-      const toScreenY = (x: number, y: number) => centerY + (x - playerPos.current.x + (y - playerPos.current.y)) * (TILE_HEIGHT / 2);
-
-      // --- LAYER 1: Ground Tiles ---
-      const range = 12;
+      const range = 14;
       const startX = Math.floor(playerPos.current.x - range);
       const endX = Math.ceil(playerPos.current.x + range);
       const startY = Math.floor(playerPos.current.y - range);
@@ -222,65 +222,62 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
         for (let x = startX; x <= endX; x++) {
           const drawX = toScreenX(x, y);
           const drawY = toScreenY(x, y);
-          
           if (assets.ground) {
-            // Subtle "Breathing" ground animation for magical feel
-            const hover = Math.sin(now / 1000 + (x + y) * 0.5) * 2;
-            ctx.drawImage(assets.ground, drawX - TILE_WIDTH / 2 - 1, drawY - TILE_HEIGHT / 2 - 1 + hover, TILE_WIDTH + 2, TILE_HEIGHT + 2);
+             const hover = Math.sin(now / 1200 + (x + y) * 0.4) * 2;
+             ctx.drawImage(assets.ground, drawX - TILE_WIDTH / 2 - 1, drawY - TILE_HEIGHT / 2 - 1 + hover, TILE_WIDTH + 2, TILE_HEIGHT + 2);
           } else {
-            ctx.fillStyle = "#2d5a27";
-            ctx.beginPath();
-            ctx.moveTo(drawX, drawY - TILE_HEIGHT/2);
-            ctx.lineTo(drawX + TILE_WIDTH/2, drawY);
-            ctx.lineTo(drawX, drawY + TILE_HEIGHT/2);
-            ctx.lineTo(drawX - TILE_WIDTH/2, drawY);
-            ctx.closePath();
-            ctx.fill();
+             ctx.fillStyle = "#2d5a27";
+             ctx.beginPath();
+             ctx.moveTo(drawX, drawY - TILE_HEIGHT/2);
+             ctx.lineTo(drawX + TILE_WIDTH/2, drawY);
+             ctx.lineTo(drawX, drawY + TILE_HEIGHT/2);
+             ctx.lineTo(drawX - TILE_WIDTH/2, drawY);
+             ctx.closePath();
+             ctx.fill();
           }
         }
       }
 
-      // --- LAYER 2: Depth Sorted Objects ---
-      const drawables: Drawable[] = [
+      // --- PASS 2: Depth-Sorted Objects ---
+      const drawList: Drawable[] = [
         { type: 'player', x: playerPos.current.x, y: playerPos.current.y, img: assets.player }
       ];
-      npcs.current.forEach(n => drawables.push({ type: 'npc', x: n.pos.x, y: n.pos.y, id: n.id, img: assets.npc }));
+      npcs.current.forEach(n => drawList.push({ type: 'npc', x: n.pos.x, y: n.pos.y, id: n.id, img: assets.npc }));
       
       for (let y = startY; y <= endY; y++) {
         for (let x = startX; x <= endX; x++) {
           const type = getTileType(x, y);
-          if (type === 1) drawables.push({ type: 'wall', x, y, img: assets.wall });
-          if (type === 2) drawables.push({ type: 'item', x, y, img: assets.item });
+          if (type === 1) drawList.push({ type: 'wall', x, y, img: assets.wall });
+          if (type === 2) drawList.push({ type: 'item', x, y, img: assets.item });
         }
       }
 
-      drawables.sort((a, b) => (a.x + a.y) - (b.x + b.y));
+      // Sort primarily by Y for correct overlap
+      drawList.sort((a, b) => (a.x + a.y) - (b.x + b.y));
 
-      drawables.forEach(d => {
+      drawList.forEach(d => {
         const dX = toScreenX(d.x, d.y);
         const dY = toScreenY(d.x, d.y);
 
-        // Ground-matching shadow
+        // Bouncy character movement/bobbing
+        let bob = 0;
+        if (d.type === 'player') {
+          if (keysPressed.current.size > 0) bob = -Math.abs(Math.sin(now / 150)) * 15;
+          else bob = Math.sin(now / 500) * 3;
+        } else if (d.type === 'npc') {
+          const npc = npcs.current.find(n => n.id === d.id);
+          if (npc?.state === 'walking') bob = -Math.abs(Math.sin(now / 150 + (d.id || 0))) * 12;
+          else bob = Math.sin(now / 400 + (d.id || 0)) * 5;
+        } else if (d.type === 'item') {
+          bob = Math.sin(now / 600) * 10;
+        }
+
+        // Draw Shadow
         if (d.type !== 'wall') {
           ctx.fillStyle = "rgba(0,0,0,0.3)";
           ctx.beginPath();
           ctx.ellipse(dX, dY + 5, 30, 15, 0, 0, Math.PI * 2);
           ctx.fill();
-        }
-
-        // Bouncy character movement
-        let bob = 0;
-        if (d.type === 'player' && keysPressed.current.size > 0) {
-          bob = -Math.abs(Math.sin(now / 150)) * 15;
-        } else if (d.type === 'npc') {
-          const n = npcs.current.find(npc => npc.id === d.id);
-          if (n?.state === 'walking') {
-            bob = -Math.abs(Math.sin(now / 150 + (d.id || 0))) * 12;
-          } else {
-            bob = Math.sin(now / 400 + (d.id || 0)) * 4; 
-          }
-        } else if (d.type === 'item') {
-          bob = Math.sin(now / 600) * 10; 
         }
 
         if (d.img) {
@@ -293,16 +290,13 @@ export const GameLoop: React.FC<GameLoopProps> = ({ assets, theme }) => {
         }
       });
 
-      // --- LAYER 3: Aether Particle Overlay ---
+      // Particle Overlay
       ctx.globalCompositeOperation = 'lighter';
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 15; i++) {
         const px = (Math.sin(now / 2000 + i) * 0.5 + 0.5) * canvas.width;
         const py = (Math.cos(now / 3000 + i * 1.5) * 0.5 + 0.5) * canvas.height;
-        const pSize = 1 + Math.sin(now / 500 + i) * 1;
         ctx.fillStyle = theme.colors.primary || "#d4af37";
-        ctx.beginPath();
-        ctx.arc(px, py, pSize, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
       }
       ctx.globalCompositeOperation = 'source-over';
 

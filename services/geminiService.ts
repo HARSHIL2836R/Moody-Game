@@ -62,7 +62,7 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
 };
 
 export const generateGameAsset = async (description: string): Promise<string> => {
-  const refinedPrompt = `A single isolated high-fidelity 3D game asset, isometric 45-degree angle, soft-body toy aesthetic, high-gloss materials, vibrant colors, rim lighting, soft ambient occlusion, clean edges, centered on a PURE WHITE background. Subject: ${description}`;
+  const refinedPrompt = `Single isolated isometric object, centered, pure white background, no floor, no shadows, high-fidelity 3D render. Subject: ${description}`;
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,

@@ -26,13 +26,17 @@ export const AssetLoader: React.FC<AssetLoaderProps> = ({ theme, onAssetsLoaded 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      // Threshold for "white-ish" pixels (RGB > 240)
+      // Detect background color by sampling corners (assumed white)
+      // Actually let's just use a high threshold for white/near-white
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        if (r > 240 && g > 240 && b > 240) {
-          data[i + 3] = 0; // Set alpha to transparent
+        
+        // If it's pure white or very close to it, make it transparent
+        // CoC style renders often have soft edges, so we apply a threshold
+        if (r > 245 && g > 245 && b > 245) {
+          data[i + 3] = 0; 
         }
       }
 
@@ -63,7 +67,7 @@ export const AssetLoader: React.FC<AssetLoaderProps> = ({ theme, onAssetsLoaded 
             rawImg.src = base64;
           });
           
-          // Apply transparency filter for non-ground tiles (ground should keep its background usually)
+          // Apply Chromakey transparency for all assets EXCEPT the ground
           if (key !== 'ground') {
             assets[key] = await processImageTransparency(rawImg);
           } else {
@@ -97,7 +101,7 @@ export const AssetLoader: React.FC<AssetLoaderProps> = ({ theme, onAssetsLoaded 
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="text-[10px] opacity-40 uppercase tracking-[0.4em]">Proprietary 3D Asset Engine v4.0</p>
+        <p className="text-[10px] opacity-40 uppercase tracking-[0.4em]">Proprietary Chromakey v5.1</p>
       </div>
     </div>
   );
