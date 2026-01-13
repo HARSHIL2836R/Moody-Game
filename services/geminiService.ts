@@ -17,6 +17,7 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
     - Strong rim lighting to separate characters from the background.
     - Chibi/stylized proportions.
     - Perspective: 45-degree front-facing isometric.
+    - Background: All sprites MUST be on a PURE WHITE background for clipping.
   `;
 
   const response = await ai.models.generateContent({
@@ -44,10 +45,10 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
             type: Type.OBJECT,
             properties: {
               ground: { type: Type.STRING, description: "Lush stylized 3D grass terrain tile, hand-painted texture, high-fidelity render, seamless, isometric" },
-              wall: { type: Type.STRING, description: "Stylized chunky stone defense tower, high-gloss stone material, rim lighting, 3D render, isometric" },
-              player: { type: Type.STRING, description: "Chibi hero, soft-body 3D render, high-gloss armor, vibrant colors, 45-degree front-facing isometric view" },
-              item: { type: Type.STRING, description: "Glistening treasure chest, gold and gem materials, high-fidelity 3D render, soft-body bounce, isometric" },
-              npc: { type: Type.STRING, description: "Cute villager character, soft-body 3D render, high-gloss clothing, 45-degree front-facing isometric" }
+              wall: { type: Type.STRING, description: "Stylized chunky stone defense tower, high-gloss stone material, rim lighting, 3D render, isometric, on pure white background" },
+              player: { type: Type.STRING, description: "Chibi hero, soft-body 3D render, high-gloss armor, vibrant colors, 45-degree front-facing isometric view, on pure white background" },
+              item: { type: Type.STRING, description: "Glistening treasure chest, gold and gem materials, high-fidelity 3D render, soft-body bounce, isometric, on pure white background" },
+              npc: { type: Type.STRING, description: "Cute villager character, soft-body 3D render, high-gloss clothing, 45-degree front-facing isometric, on pure white background" }
             }
           }
         }
@@ -55,12 +56,13 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
     }
   });
 
-  if (!response.text) throw new Error("Failed to generate theme");
-  return JSON.parse(response.text) as GameTheme;
+  const text = response.text;
+  if (!text) throw new Error("Failed to generate theme");
+  return JSON.parse(text) as GameTheme;
 };
 
 export const generateGameAsset = async (description: string): Promise<string> => {
-  const refinedPrompt = `Single isolated game asset, 45-degree isometric angle, high-fidelity stylized 3D soft-body render, high-gloss materials, vibrant colors, rim lighting, soft shadows, ambient occlusion, transparent background, subject: ${description}`;
+  const refinedPrompt = `A single isolated high-fidelity 3D game asset, isometric 45-degree angle, soft-body toy aesthetic, high-gloss materials, vibrant colors, rim lighting, soft ambient occlusion, clean edges, centered on a PURE WHITE background. Subject: ${description}`;
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -124,6 +126,7 @@ export const updateStoryline = async (
     }
   });
 
-  if (!response.text) throw new Error("Failed to update story");
-  return JSON.parse(response.text) as StoryUpdate;
+  const text = response.text;
+  if (!text) throw new Error("Failed to update story");
+  return JSON.parse(text) as StoryUpdate;
 };
