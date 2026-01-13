@@ -8,15 +8,15 @@ const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
 export const generateThemeFromMood = async (moodText: string): Promise<GameTheme> => {
   const prompt = `
-    The user wants to play a stylized isometric strategy/RPG game similar to Clash of Clans. Mood: "${moodText}".
-    Create a visual theme and world concept. 
-    Provide a concrete "initialObjective" (e.g., "Clear the ancient debris from the village square").
+    The user wants to play a high-end 3D stylized isometric strategy game exactly like Clash of Clans. Mood: "${moodText}".
+    Create a visual theme and world concept.
     
-    Assets must be in the Clash of Clans style:
-    - Stylized, high-fidelity 3D renders.
-    - Chibi proportions for characters.
-    - Vibrant, saturated colors.
-    - Soft, hand-painted textures for environments.
+    Asset Style Requirements:
+    - High-fidelity 3D soft-body renders.
+    - High-gloss materials with vibrant subsurface scattering.
+    - Strong rim lighting to separate characters from the background.
+    - Chibi/stylized proportions.
+    - Perspective: 45-degree front-facing isometric.
   `;
 
   const response = await ai.models.generateContent({
@@ -43,11 +43,11 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
           assetPrompts: {
             type: Type.OBJECT,
             properties: {
-              ground: { type: Type.STRING, description: "Stylized hand-painted lush green grass terrain tile, seamless, top-down-isometric view" },
-              wall: { type: Type.STRING, description: "Chunky beveled stone wall or defensive structure, isometric 45 degree angle" },
-              player: { type: Type.STRING, description: "Chibi hero character, stylized 3D render, vibrant armor, isometric view, rim lighting" },
-              item: { type: Type.STRING, description: "Golden treasure chest or glowing resource crystal, stylized high-fidelity 3D" },
-              npc: { type: Type.STRING, description: "Simple village worker character, chibi style, friendly appearance, isometric 45 degree angle" }
+              ground: { type: Type.STRING, description: "Lush stylized 3D grass terrain tile, hand-painted texture, high-fidelity render, seamless, isometric" },
+              wall: { type: Type.STRING, description: "Stylized chunky stone defense tower, high-gloss stone material, rim lighting, 3D render, isometric" },
+              player: { type: Type.STRING, description: "Chibi hero, soft-body 3D render, high-gloss armor, vibrant colors, 45-degree front-facing isometric view" },
+              item: { type: Type.STRING, description: "Glistening treasure chest, gold and gem materials, high-fidelity 3D render, soft-body bounce, isometric" },
+              npc: { type: Type.STRING, description: "Cute villager character, soft-body 3D render, high-gloss clothing, 45-degree front-facing isometric" }
             }
           }
         }
@@ -60,7 +60,7 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
 };
 
 export const generateGameAsset = async (description: string): Promise<string> => {
-  const refinedPrompt = `Single isolated game asset, isometric 45-degree angle, high-quality stylized 3D render style, chibi, vibrant colors, rim lighting, soft ambient occlusion, clean edges, transparent background. Subject: ${description}`;
+  const refinedPrompt = `Single isolated game asset, 45-degree isometric angle, high-fidelity stylized 3D soft-body render, high-gloss materials, vibrant colors, rim lighting, soft shadows, ambient occlusion, transparent background, subject: ${description}`;
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -84,7 +84,7 @@ export const updateStoryline = async (
   action: string
 ): Promise<StoryUpdate> => {
   const prompt = `
-    Roleplay Game Master for an Isometric Strategy World.
+    Roleplay Game Master for a high-end Isometric Strategy World.
     Theme: ${currentTheme.title}.
     World: ${currentTheme.worldDescription}.
     History: ${history.join('\n')}
