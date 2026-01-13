@@ -8,10 +8,15 @@ const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
 export const generateThemeFromMood = async (moodText: string): Promise<GameTheme> => {
   const prompt = `
-    The user wants to play a 2D top-down exploration RPG. Mood: "${moodText}".
-    Create a visual theme and world concept.
-    Provide a concrete "initialObjective" (e.g., "Talk to the Village Elder at (0,0)").
-    Provide prompts for pixel-art assets.
+    The user wants to play a stylized isometric strategy/RPG game similar to Clash of Clans. Mood: "${moodText}".
+    Create a visual theme and world concept. 
+    Provide a concrete "initialObjective" (e.g., "Clear the ancient debris from the village square").
+    
+    Assets must be in the Clash of Clans style:
+    - Stylized, high-fidelity 3D renders.
+    - Chibi proportions for characters.
+    - Vibrant, saturated colors.
+    - Soft, hand-painted textures for environments.
   `;
 
   const response = await ai.models.generateContent({
@@ -38,11 +43,11 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
           assetPrompts: {
             type: Type.OBJECT,
             properties: {
-              ground: { type: Type.STRING },
-              wall: { type: Type.STRING },
-              player: { type: Type.STRING },
-              item: { type: Type.STRING },
-              npc: { type: Type.STRING }
+              ground: { type: Type.STRING, description: "Stylized hand-painted lush green grass terrain tile, seamless, top-down-isometric view" },
+              wall: { type: Type.STRING, description: "Chunky beveled stone wall or defensive structure, isometric 45 degree angle" },
+              player: { type: Type.STRING, description: "Chibi hero character, stylized 3D render, vibrant armor, isometric view, rim lighting" },
+              item: { type: Type.STRING, description: "Golden treasure chest or glowing resource crystal, stylized high-fidelity 3D" },
+              npc: { type: Type.STRING, description: "Simple village worker character, chibi style, friendly appearance, isometric 45 degree angle" }
             }
           }
         }
@@ -55,7 +60,7 @@ export const generateThemeFromMood = async (moodText: string): Promise<GameTheme
 };
 
 export const generateGameAsset = async (description: string): Promise<string> => {
-  const refinedPrompt = `Single 2D game sprite, top-down view, ${description}. Transparent background, clean edges, isolated subject, pixel art style.`;
+  const refinedPrompt = `Single isolated game asset, isometric 45-degree angle, high-quality stylized 3D render style, chibi, vibrant colors, rim lighting, soft ambient occlusion, clean edges, transparent background. Subject: ${description}`;
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -79,7 +84,7 @@ export const updateStoryline = async (
   action: string
 ): Promise<StoryUpdate> => {
   const prompt = `
-    Roleplay Game Master.
+    Roleplay Game Master for an Isometric Strategy World.
     Theme: ${currentTheme.title}.
     World: ${currentTheme.worldDescription}.
     History: ${history.join('\n')}
@@ -88,8 +93,8 @@ export const updateStoryline = async (
     Task: 
     1. Provide a narrative response.
     2. Provide a nearby description.
-    3. Give a new objective.
-    4. Provide 2-3 interactive dialogue choices or actions the player can take next.
+    3. Give a new village-building or exploration objective.
+    4. Provide 2-3 interactive choices.
   `;
 
   const response = await ai.models.generateContent({
