@@ -1,0 +1,5 @@
+{
+  "name": "Moody Game",
+  "description": "An infinite, AI-generated 2D open-world game where the environment, story, and visual assets adapt to your mood using Gemini Nano Banana and Flash models.",
+  "requestFramePermissions": []
+}
